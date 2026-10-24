@@ -73,7 +73,7 @@ npm run build --silent
 
 if ! git remote get-url nexus >/dev/null 2>&1; then
   say "Bootstrapping bare repo $NEXUS:~/$BARE and git remote 'nexus'"
-  ssh "$NEXUS" "mkdir -p '$BARE' && cd '$BARE' && (git rev-parse --is-bare-repository >/dev/null 2>&1 || git init --bare -q)"
+  ssh "$NEXUS" "mkdir -p '$BARE' && cd '$BARE' && (git rev-parse --is-bare-repository >/dev/null 2>&1 || git init --bare -q) && git symbolic-ref HEAD refs/heads/$BRANCH"
   git remote add nexus "$NEXUS:$BARE"
 fi
 
