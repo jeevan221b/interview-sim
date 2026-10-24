@@ -56,3 +56,49 @@ export function relativeDate(iso: string) {
 }
 
 export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
+
+/** "Chrome · Android" from a user-agent string (good enough for a sign-in list). */
+export function describeDevice(ua: string | null) {
+  if (!ua) return 'Unknown device';
+  const browser = /Edg\//.test(ua)
+    ? 'Edge'
+    : /OPR\//.test(ua)
+      ? 'Opera'
+      : /Firefox\//.test(ua)
+        ? 'Firefox'
+        : /Chrome\//.test(ua)
+          ? 'Chrome'
+          : /Safari\//.test(ua)
+            ? 'Safari'
+            : /curl|node|undici/i.test(ua)
+              ? 'Script'
+              : 'Browser';
+  const os = /Android/.test(ua)
+    ? 'Android'
+    : /iPhone|iPad|iOS/.test(ua)
+      ? 'iOS'
+      : /Mac OS X|Macintosh/.test(ua)
+        ? 'macOS'
+        : /Windows/.test(ua)
+          ? 'Windows'
+          : /CrOS/.test(ua)
+            ? 'ChromeOS'
+            : /Linux/.test(ua)
+              ? 'Linux'
+              : '';
+  return os ? `${browser} · ${os}` : browser;
+}
+
+export const isMobileUa = (ua: string | null) => !!ua && /Android|iPhone|iPad|Mobile/.test(ua);
+
+export const compact = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+
+export function formatDateTime(iso: string) {
+  return new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+/** "12 min", "1 h 5 min" between two ISO timestamps. */
+export function spanLabel(from: string, to: string) {
+  const min = Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / 60_000));
+  return min < 60 ? `${min} min` : `${Math.floor(min / 60)} h${min % 60 ? ` ${min % 60} min` : ''}`;
+}

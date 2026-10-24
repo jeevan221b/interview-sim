@@ -40,7 +40,7 @@ export function gemini({ apiKey, model }) {
         .map((p) => p.text || '')
         .join('');
       if (!text) throw new Error(`empty Gemini response (${data?.candidates?.[0]?.finishReason || 'no candidates'})`);
-      return { data: parse(text), model };
+      return { data: parse(text), model, tokens: Number(data?.usageMetadata?.totalTokenCount) || 0 };
     },
   };
 }
@@ -109,7 +109,7 @@ export function groq({ apiKey, models, reasoningEffort }, { quota, log = console
             });
             const text = data?.choices?.[0]?.message?.content;
             if (!text) throw new Error(`empty response (${data?.choices?.[0]?.finish_reason || 'no choices'})`);
-            return { data: parse(text), model };
+            return { data: parse(text), model, tokens: Number(data?.usage?.total_tokens) || 0 };
           } catch (err) {
             if (err.status === 401 || err.status === 403) throw new Error(`Groq rejected the API key (HTTP ${err.status})`);
             if (err.status === 429 && attempt === 0 && err.waitMs > 0 && err.waitMs <= MAX_INLINE_WAIT_MS) {
@@ -166,7 +166,7 @@ export function claudeCli({ bin, model }) {
           try {
             const parsed = JSON.parse(out);
             if (parsed.is_error || code !== 0) throw new Error(parsed.result || `exit ${code}`);
-            resolve({ data: parse(parsed.result), model: model || 'claude' });
+            resolve({ data: parse(parsed.result), model: model || 'claude', tokens: (parsed.usage?.input_tokens || 0) + (parsed.usage?.output_tokens || 0) });
           } catch (e) {
             reject(new Error(`claude CLI failed: ${e.message} ${err.slice(0, 200)}`));
           }

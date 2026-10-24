@@ -8,20 +8,39 @@ const safeEqual = (a, b) => {
   return x.length > 0 && x.length === y.length && timingSafeEqual(x, y);
 };
 
+export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 /**
- * Auth middleware for /api routes. Modes (combinable, e.g. "cloudflare,token"):
- * - none:       no checks; only for a server bound to localhost.
- * - cloudflare: require a valid Cloudflare Access JWT for this app's AUD, and an
- *               allowed email. Protects the app even if Access is misconfigured.
- * - token:      require ACCESS_TOKEN as a Bearer token (the Tailscale/ssh fallback).
+ * Authentication for /api routes: works out *who* is calling and stores it as
+ * c.get('identity') = { email, via }. Whether that person may use the app is decided
+ * afterwards against the users table (see app.js). Modes (combinable, e.g. "cloudflare,token"):
+ * - none:       local development only (the server refuses to bind beyond localhost).
+ *               Everyone is the first admin, or whoever the X-Dev-User header names,
+ *               so multi-user behaviour can be tried on one machine.
+ * - cloudflare: require a valid Cloudflare Access JWT for this app's AUD.
+ * - token:      ACCESS_TOKEN as a Bearer token signs in as the first admin (the
+ *               Tailscale/ssh fallback; never a way in for other users).
  *
  * @param {ReturnType<import('./config.js').loadConfig>['auth']} auth
  * @param {{ jwks?: any }} [deps] injectable key set for tests
  */
 export function createAuth(auth, deps = {}) {
   const modes = new Set(auth.modes);
-  if (modes.has('none')) return { mode: 'none', middleware: async (_c, next) => next() };
+  const owner = auth.adminEmails[0];
 
+  if (modes.has('none')) {
+    const devEmail = owner || 'admin@localhost';
+    return {
+      mode: 'none',
+      middleware: async (c, next) => {
+        const asked = (c.req.header('x-dev-user') || '').trim().toLowerCase();
+        c.set('identity', { email: EMAIL_RE.test(asked) ? asked : devEmail, via: 'dev' });
+        return next();
+      },
+    };
+  }
+
+  if (!owner) throw new Error('ADMIN_EMAILS must name at least one admin when AUTH_MODE is not "none"');
   if (modes.has('token') && auth.accessToken.length < 24) {
     throw new Error('AUTH_MODE includes "token" but ACCESS_TOKEN is missing or shorter than 24 chars');
   }
@@ -29,9 +48,6 @@ export function createAuth(auth, deps = {}) {
   if (modes.has('cloudflare')) {
     if (!auth.cfTeamDomain || !auth.cfAud) {
       throw new Error('AUTH_MODE includes "cloudflare" but CF_ACCESS_TEAM_DOMAIN / CF_ACCESS_AUD are not set');
-    }
-    if (!auth.allowedEmails.length) {
-      throw new Error('AUTH_MODE includes "cloudflare" but ALLOWED_EMAILS is empty');
     }
     jwks = deps.jwks || createRemoteJWKSet(new URL(`https://${auth.cfTeamDomain}/cdn-cgi/access/certs`));
   }
@@ -43,7 +59,7 @@ export function createAuth(auth, deps = {}) {
         audience: auth.cfAud,
       });
       const email = String(payload.email || '').toLowerCase();
-      return auth.allowedEmails.includes(email) ? email : null;
+      return EMAIL_RE.test(email) ? email : null;
     } catch {
       return null;
     }
@@ -55,22 +71,22 @@ export function createAuth(auth, deps = {}) {
       if (jwt) {
         const email = await verifyCloudflare(jwt);
         if (email) {
-          c.set('user', email);
+          c.set('identity', { email, via: 'cloudflare' });
           return next();
         }
         // A Cloudflare token was presented but is invalid: never fall through to token auth.
-        return c.json({ error: 'unauthorized' }, 401);
+        return c.json({ error: 'unauthorized', code: 'unauthorized' }, 401);
       }
     }
     if (modes.has('token')) {
       const header = c.req.header('authorization') || '';
       const supplied = header.startsWith('Bearer ') ? header.slice(7) : '';
       if (safeEqual(supplied, auth.accessToken)) {
-        c.set('user', 'token');
+        c.set('identity', { email: owner, via: 'token' });
         return next();
       }
     }
-    return c.json({ error: 'unauthorized' }, 401);
+    return c.json({ error: 'unauthorized', code: 'unauthorized' }, 401);
   };
 
   return { mode: [...modes].join(','), middleware };

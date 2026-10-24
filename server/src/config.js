@@ -19,6 +19,9 @@ export function loadConfig(env = process.env) {
       accessToken: env.ACCESS_TOKEN || '',
       cfTeamDomain: (env.CF_ACCESS_TEAM_DOMAIN || '').replace(/^https?:\/\//, '').replace(/\/$/, ''),
       cfAud: env.CF_ACCESS_AUD || '',
+      // Admins can't be disabled from the UI; the first one also owns pre-multi-user data.
+      adminEmails: list(env.ADMIN_EMAILS, '').map((e) => e.toLowerCase()),
+      // Optional: invited users to create at startup (more can be added in the admin page).
       allowedEmails: list(env.ALLOWED_EMAILS, '').map((e) => e.toLowerCase()),
     },
     llm: {
@@ -35,6 +38,8 @@ export function loadConfig(env = process.env) {
       claudeCli: { bin: env.CLAUDE_BIN || 'claude', model: env.CLAUDE_MODEL || '' },
     },
     aiRateLimitPerMin: num(env.AI_RATE_LIMIT_PER_MIN, 20),
+    // AI requests per user per day (admins are unlimited); overridable per user.
+    dailyAiLimit: num(env.DAILY_AI_LIMIT, 60),
     idleShutdownMinutes: num(env.IDLE_SHUTDOWN_MINUTES, 0),
   };
 }

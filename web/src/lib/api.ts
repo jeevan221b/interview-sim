@@ -1,6 +1,7 @@
-import type { Meta, Question, Quota, Session, SessionConfig, SessionSummary, Stats } from './types';
+import type { ActivityEvent, AdminUser, AdminUserDetail, CustomTopicData, Me, Meta, Question, Quota, Session, SessionConfig, SessionSummary, Stats } from './types';
 
 const TOKEN_KEY = 'isim.token';
+const DEV_USER_KEY = 'isim.devUser';
 
 // Token-mode auth: open the app once with #token=... and it is remembered on this device.
 (() => {
@@ -31,10 +32,30 @@ export function setToken(token: string) {
   }
 }
 
+/** Local development only (AUTH_MODE=none): act as another user to try multi-user flows. */
+export function getDevUser() {
+  try {
+    return localStorage.getItem(DEV_USER_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+export function setDevUser(email: string) {
+  try {
+    if (email) localStorage.setItem(DEV_USER_KEY, email);
+    else localStorage.removeItem(DEV_USER_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    public code?: string,
+    public data: Record<string, unknown> = {},
   ) {
     super(message);
   }
@@ -44,6 +65,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const headers: Record<string, string> = {};
   const token = getToken();
   if (token) headers.authorization = `Bearer ${token}`;
+  const devUser = getDevUser();
+  if (devUser) headers['x-dev-user'] = devUser;
   let payload: BodyInit | undefined;
   if (body instanceof FormData) payload = body;
   else if (body !== undefined) {
@@ -57,7 +80,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     throw new ApiError(0, 'Cannot reach the server. Is it running?');
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.error || `Request failed (${res.status})`);
+  if (!res.ok) throw new ApiError(res.status, data.error || `Request failed (${res.status})`, data.code, data);
   return data as T;
 }
 
@@ -69,8 +92,24 @@ export interface AnswerPayload {
   inputMode: 'voice' | 'typed';
 }
 
+const enc = encodeURIComponent;
+
 export const api = {
+  me: () => request<Me>('GET', '/api/me'),
   meta: () => request<Meta>('GET', '/api/meta'),
+  topics: () => request<CustomTopicData[]>('GET', '/api/topics'),
+  saveTopic: (t: CustomTopicData) => request<CustomTopicData[]>('POST', '/api/topics', t),
+  importTopics: (topics: CustomTopicData[]) => request<CustomTopicData[]>('POST', '/api/topics', { topics }),
+  removeTopic: (name: string) => request<CustomTopicData[]>('DELETE', `/api/topics/${enc(name)}`),
+  admin: {
+    users: () => request<{ users: AdminUser[]; defaultLimit: number; day: string; onlineWindowMin: number }>('GET', '/api/admin/users'),
+    user: (email: string) => request<AdminUserDetail>('GET', `/api/admin/users/${enc(email)}`),
+    activity: () => request<{ events: ActivityEvent[] }>('GET', '/api/admin/activity'),
+    addUser: (u: { email: string; name?: string; dailyLimit?: number | null }) => request<{ users: AdminUser[] }>('POST', '/api/admin/users', u),
+    updateUser: (email: string, patch: { name?: string; status?: 'active' | 'disabled'; dailyLimit?: number | null }) =>
+      request<{ users: AdminUser[] }>('PATCH', `/api/admin/users/${enc(email)}`, patch),
+    removeUser: (email: string, deleteData: boolean) => request<{ users: AdminUser[] }>('DELETE', `/api/admin/users/${enc(email)}${deleteData ? '?deleteData=1' : ''}`),
+  },
   stats: () => request<Stats>('GET', '/api/stats'),
   sessions: () => request<SessionSummary[]>('GET', '/api/sessions'),
   session: (id: string) => request<Session>('GET', `/api/sessions/${id}`),

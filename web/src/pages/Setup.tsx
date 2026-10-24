@@ -27,7 +27,7 @@ import { QuotaSummary, estimateCalls } from '../components/quota';
 import { Orb } from '../components/visuals';
 import { api } from '../lib/api';
 import { LEVEL_LABELS, cx, roleLabel } from '../lib/format';
-import { useMeta } from '../lib/hooks';
+import { refreshMe, useMeta } from '../lib/hooks';
 import { useSettings } from '../lib/settings';
 import { browserSttSupported, micSupported, resolveEngine, speak, ttsSupported, useMicTest } from '../lib/speech';
 import { ALL_ROLES, FIELDS, TOPICS, customToTopic, fieldMeta, useCustomTopics, type CustomTopic, type Topic } from '../lib/topics';
@@ -89,6 +89,7 @@ export function SetupPage() {
     setCreating(true);
     try {
       const session = await api.createSession(config);
+      refreshMe();
       navigate(`/interview/${session.id}`);
     } catch (e) {
       toast((e as Error).message, 'error');
@@ -298,8 +299,10 @@ function TopicStep({ value, onPick }: { value: string; onPick: (t: Topic) => voi
                   <button
                     aria-label={`Remove ${t.name}`}
                     onClick={() => {
-                      remove(t.name);
-                      toast(`Removed “${t.name}”`);
+                      remove(t.name).then(
+                        () => toast(`Removed “${t.name}”`),
+                        (e: Error) => toast(e.message, 'error'),
+                      );
                     }}
                     className="absolute top-2 right-2 rounded-lg p-1.5 text-ink-400 transition-colors hover:bg-bad/15 hover:text-bad"
                   >
@@ -324,7 +327,7 @@ function TopicStep({ value, onPick }: { value: string; onPick: (t: Topic) => voi
         draft={builder}
         onClose={() => setBuilder(null)}
         onSave={(c) => {
-          save(c);
+          save(c).catch((e: Error) => toast(`Couldn't save the topic: ${e.message}`, 'error'));
           setBuilder(null);
           onPick(customToTopic(c));
         }}
@@ -635,7 +638,7 @@ function ReadyStep({ config }: { config: SessionConfig }) {
   const barRef = useRef<HTMLDivElement>(null);
   const [heard, setHeard] = useState(false);
   const engine = resolveEngine(settings.sttEngine, !!meta.data?.whisper);
-  const mockOnly = meta.data && meta.data.providers.every((p) => p.name === 'mock');
+  const mockOnly = meta.data?.mockOnly;
 
   useEffect(() => {
     if (!mic.active) return;

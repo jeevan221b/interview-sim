@@ -12,12 +12,12 @@ async function setup(modes) {
   const { publicKey, privateKey } = await generateKeyPair('RS256');
   const jwk = { ...(await exportJWK(publicKey)), kid: 'k1', alg: 'RS256' };
   const auth = createAuth(
-    { modes, accessToken: TOKEN, cfTeamDomain: TEAM, cfAud: AUD, allowedEmails: ['me@example.com'] },
+    { modes, accessToken: TOKEN, cfTeamDomain: TEAM, cfAud: AUD, adminEmails: ['owner@example.com'], allowedEmails: [] },
     { jwks: createLocalJWKSet({ keys: [jwk] }) },
   );
   const app = new Hono();
   app.use('*', auth.middleware);
-  app.get('/x', (c) => c.json({ user: c.get('user') }));
+  app.get('/x', (c) => c.json(c.get('identity')));
   const sign = (claims, opts = {}) =>
     new SignJWT(claims)
       .setProtectedHeader({ alg: 'RS256', kid: 'k1' })
@@ -30,19 +30,19 @@ async function setup(modes) {
 
 const get = (app, headers = {}) => app.request('/x', { headers });
 
-test('cloudflare: valid token for an allowed email passes', async () => {
+test('cloudflare: a valid token identifies the user (access is decided later by the users table)', async () => {
   const { app, sign } = await setup(['cloudflare']);
   const res = await get(app, { 'cf-access-jwt-assertion': await sign({ email: 'Me@Example.com' }) });
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { user: 'me@example.com' });
+  assert.deepEqual(await res.json(), { email: 'me@example.com', via: 'cloudflare' });
 });
 
-test('cloudflare: rejects missing, wrong-email, wrong-audience, wrong-issuer and foreign-key tokens', async () => {
+test('cloudflare: rejects missing, emailless, wrong-audience, wrong-issuer and foreign-key tokens', async () => {
   const { app, sign } = await setup(['cloudflare']);
   const other = await generateKeyPair('RS256');
   const bad = [
     undefined,
-    await sign({ email: 'someone@else.com' }),
+    await sign({ sub: 'service-token' }),
     await sign({ email: 'me@example.com' }, { audience: 'other-app' }),
     await sign({ email: 'me@example.com' }, { issuer: 'https://evil.cloudflareaccess.com' }),
     await sign({ email: 'me@example.com' }, { key: other.privateKey }),
@@ -54,9 +54,11 @@ test('cloudflare: rejects missing, wrong-email, wrong-audience, wrong-issuer and
   }
 });
 
-test('token: bearer token passes, wrong token fails', async () => {
+test('token: bearer token signs in as the first admin, wrong token fails', async () => {
   const { app } = await setup(['token']);
-  assert.equal((await get(app, { authorization: `Bearer ${TOKEN}` })).status, 200);
+  const ok = await get(app, { authorization: `Bearer ${TOKEN}` });
+  assert.equal(ok.status, 200);
+  assert.deepEqual(await ok.json(), { email: 'owner@example.com', via: 'token' });
   assert.equal((await get(app, { authorization: `Bearer ${'y'.repeat(32)}` })).status, 401);
   assert.equal((await get(app)).status, 401);
 });
@@ -64,7 +66,7 @@ test('token: bearer token passes, wrong token fails', async () => {
 test('cloudflare,token: an invalid Cloudflare token does not fall back to token auth', async () => {
   const { app, sign } = await setup(['cloudflare', 'token']);
   const res = await get(app, {
-    'cf-access-jwt-assertion': await sign({ email: 'someone@else.com' }),
+    'cf-access-jwt-assertion': await sign({ email: 'me@example.com' }, { audience: 'other-app' }),
     authorization: `Bearer ${TOKEN}`,
   });
   assert.equal(res.status, 401);
@@ -72,7 +74,18 @@ test('cloudflare,token: an invalid Cloudflare token does not fall back to token 
 });
 
 test('misconfiguration fails at startup instead of leaving the app open', () => {
-  assert.throws(() => createAuth({ modes: ['token'], accessToken: 'short', allowedEmails: [] }));
-  assert.throws(() => createAuth({ modes: ['cloudflare'], accessToken: '', cfTeamDomain: TEAM, cfAud: '', allowedEmails: ['a@b.c'] }));
-  assert.throws(() => createAuth({ modes: ['cloudflare'], accessToken: '', cfTeamDomain: TEAM, cfAud: AUD, allowedEmails: [] }));
+  const admins = ['owner@example.com'];
+  assert.throws(() => createAuth({ modes: ['token'], accessToken: 'short', adminEmails: admins }));
+  assert.throws(() => createAuth({ modes: ['token'], accessToken: TOKEN, adminEmails: [] }), /ADMIN_EMAILS/);
+  assert.throws(() => createAuth({ modes: ['cloudflare'], accessToken: '', cfTeamDomain: TEAM, cfAud: '', adminEmails: admins }));
+});
+
+test('none: dev identity is the first admin, X-Dev-User can impersonate locally', async () => {
+  const auth = createAuth({ modes: ['none'], adminEmails: ['owner@example.com'] });
+  const app = new Hono();
+  app.use('*', auth.middleware);
+  app.get('/x', (c) => c.json(c.get('identity')));
+  assert.deepEqual(await (await get(app)).json(), { email: 'owner@example.com', via: 'dev' });
+  assert.deepEqual(await (await get(app, { 'x-dev-user': 'Friend@Example.com' })).json(), { email: 'friend@example.com', via: 'dev' });
+  assert.equal((await (await get(app, { 'x-dev-user': 'not an email' })).json()).email, 'owner@example.com');
 });

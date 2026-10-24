@@ -1,17 +1,18 @@
 import { motion } from 'motion/react';
-import { AudioLines, Bot, Gauge, CheckCircle2, CircleAlert, KeyRound, Languages, Mic, RotateCcw, ShieldCheck, Volume2 } from 'lucide-react';
+import { AudioLines, Bot, UserRound, CheckCircle2, CircleAlert, KeyRound, Languages, Mic, RotateCcw, ShieldCheck, Volume2 } from 'lucide-react';
 import { useState } from 'react';
-import { QuotaPanel } from '../components/quota';
+import { Avatar } from '../components/Layout';
 import { Badge, Button, Card, PageHeader, SectionTitle, Segmented, Slider, Toggle, stagger, useToast } from '../components/ui';
 import { getToken, setToken } from '../lib/api';
 import { cx } from '../lib/format';
-import { useMeta } from '../lib/hooks';
+import { useMe, useMeta } from '../lib/hooks';
 import { LANGUAGES, resetSettings, useSettings } from '../lib/settings';
 import { browserSttSupported, speak, ttsSupported, useVoices } from '../lib/speech';
 
 export function SettingsPage() {
   const [settings, update] = useSettings();
   const meta = useMeta();
+  const me = useMe().data;
   const voices = useVoices();
   const toast = useToast();
   const [token, setTokenInput] = useState(getToken());
@@ -19,7 +20,7 @@ export function SettingsPage() {
 
   return (
     <motion.div variants={stagger.container} initial="hidden" animate="show">
-      <PageHeader title="Settings" subtitle="Voice, speech recognition and AI setup. Preferences are saved on this device." />
+      <PageHeader title="Settings" subtitle={me?.isAdmin ? 'Voice, speech recognition and AI setup. Voice preferences are saved on this device.' : 'Voice and speech recognition. Preferences are saved on this device.'} />
 
       <div className="grid gap-5 lg:grid-cols-2">
         <motion.div variants={stagger.item}>
@@ -102,6 +103,53 @@ export function SettingsPage() {
 
         <motion.div variants={stagger.item}>
           <Card className="p-5 sm:p-6">
+            <SectionTitle icon={<UserRound className="size-5" />}>Your account</SectionTitle>
+            {me && (
+              <>
+                <div className="flex items-center gap-3">
+                  <Avatar email={me.email} name={me.name} />
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{me.name || me.email}</div>
+                    {me.name && <div className="truncate text-sm text-ink-400">{me.email}</div>}
+                  </div>
+                  <span className="ml-auto">{me.isAdmin ? <Badge color="#34d399">Admin</Badge> : <Badge>Member</Badge>}</span>
+                </div>
+                <div className="mt-4 rounded-xl border border-white/8 bg-white/[0.02] p-3 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-ink-300">AI requests today</span>
+                    <span className="tabular-nums">
+                      {me.usage.used}
+                      {me.usage.limit !== null ? ` / ${me.usage.limit}` : ''}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-ink-400">
+                    {me.usage.limit !== null
+                      ? 'Each interview uses a few requests (fewer with grading at the end). The count resets at midnight.'
+                      : 'No daily limit on your account.'}
+                  </p>
+                </div>
+                <p className="mt-3 text-xs text-ink-400">Your interviews, history and custom topics are private to your account and follow you to any device.</p>
+              </>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-4 -ml-2"
+              icon={<RotateCcw className="size-4" />}
+              onClick={() => {
+                resetSettings();
+                toast('Preferences reset on this device', 'success');
+              }}
+            >
+              Reset preferences
+            </Button>
+          </Card>
+        </motion.div>
+
+        {me?.isAdmin && (
+          <>
+        <motion.div variants={stagger.item}>
+          <Card className="p-5 sm:p-6">
             <SectionTitle icon={<Bot className="size-5" />}>AI providers</SectionTitle>
             {meta.error ? (
               <p className="flex items-center gap-2 text-sm text-bad">
@@ -109,7 +157,7 @@ export function SettingsPage() {
               </p>
             ) : (
               <ol className="space-y-2">
-                {meta.data?.providers.map((p, i) => (
+                {meta.data?.providers?.map((p, i) => (
                   <li key={p.name} className={cx('flex items-center gap-3 rounded-xl border p-3', i === 0 ? 'border-brand-soft/30 bg-brand/[0.06]' : 'border-white/5')}>
                     <span className="flex size-7 items-center justify-center rounded-full bg-white/[0.06] text-xs font-semibold">{i + 1}</span>
                     <span className="flex-1 text-sm">{p.label}</span>
@@ -130,19 +178,11 @@ export function SettingsPage() {
 
         <motion.div variants={stagger.item}>
           <Card className="p-5 sm:p-6">
-            <SectionTitle icon={<Gauge className="size-5" />}>AI quota</SectionTitle>
-            <QuotaPanel />
-          </Card>
-        </motion.div>
-
-        <motion.div variants={stagger.item}>
-          <Card className="p-5 sm:p-6">
             <SectionTitle icon={<ShieldCheck className="size-5" />}>Access</SectionTitle>
             <div className="flex items-center justify-between text-sm">
               <span className="text-ink-300">Server auth mode</span>
               <Badge color={meta.data?.authMode === 'none' ? '#fbbf24' : '#34d399'}>{meta.data?.authMode ?? '…'}</Badge>
             </div>
-            {meta.data?.user && <p className="mt-2 text-sm text-ink-300">Signed in as {meta.data.user}</p>}
             <div className="mt-5">
               <label className="mb-2 flex items-center gap-2 text-sm font-medium text-ink-200">
                 <KeyRound className="size-4 text-brand-soft" /> Access token (token mode)
@@ -160,20 +200,10 @@ export function SettingsPage() {
               </div>
               <p className="mt-2 text-xs text-ink-400">Only needed when reaching the server without Cloudflare Access (e.g. over Tailscale).</p>
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="mt-5 -ml-2"
-              icon={<RotateCcw className="size-4" />}
-              onClick={() => {
-                resetSettings();
-                toast('Preferences reset', 'success');
-              }}
-            >
-              Reset preferences
-            </Button>
           </Card>
         </motion.div>
+          </>
+        )}
       </div>
     </motion.div>
   );

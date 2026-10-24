@@ -24,7 +24,7 @@ import { Badge, Button, Card, Modal, useToast } from '../components/ui';
 import { LiveWave, MicButton, Orb, Typewriter, type OrbState } from '../components/visuals';
 import { api } from '../lib/api';
 import { cx, formatDuration, scoreTone } from '../lib/format';
-import { useHotkey, useMediaQuery, useMeta } from '../lib/hooks';
+import { refreshMe, useHotkey, useMediaQuery, useMeta } from '../lib/hooks';
 import { useSettings } from '../lib/settings';
 import { cancelSpeech, chime, resolveEngine, speak, ttsSupported, useAnswerCapture } from '../lib/speech';
 import type { Question, Session } from '../lib/types';
@@ -151,6 +151,7 @@ export function InterviewPage() {
     cancelSpeech();
     try {
       await api.finish(id);
+      refreshMe();
       if (settings.sounds) chime('done');
       navigate(`/report/${id}`, { replace: true });
     } catch (e) {

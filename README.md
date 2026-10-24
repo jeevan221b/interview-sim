@@ -25,6 +25,21 @@ Free API keys:
 - Gemini: <https://aistudio.google.com/apikey>
 - Groq (also enables Whisper transcription): <https://console.groq.com/keys>
 
+## Users and access
+
+Invite-only. Authentication proves who someone is (Cloudflare Access login, or the owner's access token);
+the app's own users table decides whether they get in.
+
+- **Admin** (`ADMIN_EMAILS`): the Admin page to invite, pause or remove people, set per-person daily AI
+  limits, and see activity counts (not anyone's answers) plus the Groq quota. Settings shows the system
+  cards (AI providers, access) only to admins; voice and speech preferences are per device for everyone.
+- **Everyone's data is private**: interviews, stats, history and custom topics are scoped to the signed-in
+  email and follow them across devices. Interviews from before multi-user support belong to the first admin.
+- **Daily AI allowance**: checked when an interview starts (using its estimated request count), never in the
+  middle of one. Removing a person can optionally delete their data.
+- **Local development** (`AUTH_MODE=none`): you are the first admin; the Admin page's "View as" (the
+  `X-Dev-User` header) lets you try the app as an invited user on one machine.
+
 ## Keeping AI usage low
 
 - **Grading at the end** (per interview, in setup): answers are graded in batches of 3 when you finish,
@@ -52,8 +67,11 @@ npm start                 # server serves the UI and API on HOST:PORT (default 1
 | `GROQ_REASONING_EFFORT` | `low` | gpt-oss reasoning effort; `low` keeps token use down |
 | `GROQ_STT_MODEL` | `whisper-large-v3-turbo` | Whisper transcription |
 | `AUTH_MODE` | `none` | `none`, `token`, `cloudflare`, or `cloudflare,token` |
-| `ACCESS_TOKEN` | | ≥24 chars; sent as `Authorization: Bearer`. Open the app once with `/#token=…` to save it on a device. |
-| `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, `ALLOWED_EMAILS` | | Cloudflare Access JWT verification (team domain like `me.cloudflareaccess.com`) |
+| `ACCESS_TOKEN` | | ≥24 chars; sent as `Authorization: Bearer`; signs in as the first admin. Open the app once with `/#token=…` to save it on a device. |
+| `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD` | | Cloudflare Access JWT verification (team domain like `me.cloudflareaccess.com`) |
+| `ADMIN_EMAILS` | | Admins: always allowed, see the Admin page, no daily limit. Required unless `AUTH_MODE=none`. |
+| `ALLOWED_EMAILS` | | Optional users to invite at startup (normally invite from the Admin page) |
+| `DAILY_AI_LIMIT` | `60` | AI requests per user per day; admins unlimited; overridable per user |
 | `AI_RATE_LIMIT_PER_MIN` | `20` | Cap on AI-spending requests |
 | `IDLE_SHUTDOWN_MINUTES` | `0` | Exit after N idle minutes (for on-demand hosting) |
 | `DB_PATH` | `data/interview-sim.db` | SQLite file |
@@ -68,7 +86,8 @@ and the UI is built on the laptop and shipped as static files. Plan:
 1. Build `web/dist` on the laptop, then sync the repo to Nexus and run `npm install --omit=dev -w server`.
 2. Run `npm start` in tmux with `PORT=8920`, `IDLE_SHUTDOWN_MINUTES=30`, launched on demand from Mission Control.
 3. Expose it through the existing Cloudflare tunnel as its own hostname behind Cloudflare Access
-   (allow only your email) and set `AUTH_MODE=cloudflare,token`.
+   (an Access group holding the invited emails; Google + one-time PIN login) and set
+   `AUTH_MODE=cloudflare,token` with `ADMIN_EMAILS`. Invite the same emails in the Admin page.
    The microphone needs HTTPS, which the tunnel provides.
 
 ## Layout

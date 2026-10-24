@@ -57,7 +57,8 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import type { InterviewType } from './types';
+import { api } from './api';
+import type { CustomTopicData, InterviewType } from './types';
 
 export type Field =
   | 'Computer & IT'
@@ -233,52 +234,70 @@ export const TOPICS: Topic[] = [
   ]),
 ];
 
-// ---------- custom topics (saved per device) ----------
+// ---------- custom topics (stored per user on the server) ----------
 
-export interface CustomTopic {
-  name: string;
-  field: string;
-  focus: string;
-  type?: InterviewType;
+export type CustomTopic = CustomTopicData;
+
+// Topics created before they moved to the server lived in localStorage.
+const LEGACY_KEY = 'isim.customTopics';
+const CHANGE_EVENT = 'isim:custom-topics';
+let cache: CustomTopic[] = [];
+let loading: Promise<CustomTopic[]> | null = null;
+
+function setCache(list: CustomTopic[]) {
+  cache = list;
+  window.dispatchEvent(new Event(CHANGE_EVENT));
+  return list;
 }
 
-const CUSTOM_KEY = 'isim.customTopics';
-const CUSTOM_EVENT = 'isim:custom-topics';
-
-function readCustom(): CustomTopic[] {
+async function migrateLegacy(list: CustomTopic[]) {
+  let legacy: CustomTopic[] = [];
   try {
-    const list = JSON.parse(localStorage.getItem(CUSTOM_KEY) || '[]');
-    return Array.isArray(list) ? list.filter((c) => c && typeof c.name === 'string') : [];
+    legacy = JSON.parse(localStorage.getItem(LEGACY_KEY) || '[]');
   } catch {
-    return [];
+    return list;
   }
+  if (!Array.isArray(legacy) || !legacy.length) return list;
+  const merged = await api.importTopics(legacy.filter((c) => c && typeof c.name === 'string'));
+  try {
+    localStorage.removeItem(LEGACY_KEY);
+  } catch {
+    /* ignore */
+  }
+  return merged;
 }
 
-function writeCustom(list: CustomTopic[]) {
-  try {
-    localStorage.setItem(CUSTOM_KEY, JSON.stringify(list.slice(0, 40)));
-  } catch {
-    /* storage unavailable: custom topics just won't persist */
+function loadTopics(fresh = false) {
+  if (fresh || !loading) {
+    loading = api
+      .topics()
+      .then(migrateLegacy)
+      .then(setCache)
+      .catch((e) => {
+        loading = null;
+        throw e;
+      });
   }
-  window.dispatchEvent(new Event(CUSTOM_EVENT));
+  return loading;
 }
 
 export function useCustomTopics() {
-  const [list, setList] = useState(readCustom);
+  const [list, setList] = useState<CustomTopic[]>(cache);
   useEffect(() => {
-    const sync = () => setList(readCustom());
-    window.addEventListener(CUSTOM_EVENT, sync);
-    window.addEventListener('storage', sync);
-    return () => {
-      window.removeEventListener(CUSTOM_EVENT, sync);
-      window.removeEventListener('storage', sync);
-    };
+    const sync = () => setList(cache);
+    window.addEventListener(CHANGE_EVENT, sync);
+    loadTopics().then(sync, () => {});
+    return () => window.removeEventListener(CHANGE_EVENT, sync);
   }, []);
-  const save = useCallback((topic: CustomTopic) => {
-    const key = topic.name.trim().toLowerCase();
-    writeCustom([topic, ...readCustom().filter((c) => c.name.trim().toLowerCase() !== key)]);
+  const save = useCallback(async (topic: CustomTopic) => {
+    // Optimistic: show it right away, then take the server's list.
+    setCache([topic, ...cache.filter((c) => c.name.toLowerCase() !== topic.name.toLowerCase())]);
+    setCache(await api.saveTopic(topic));
   }, []);
-  const remove = useCallback((name: string) => writeCustom(readCustom().filter((c) => c.name !== name)), []);
+  const remove = useCallback(async (name: string) => {
+    setCache(cache.filter((c) => c.name !== name));
+    setCache(await api.removeTopic(name));
+  }, []);
   return { list, save, remove };
 }
 
@@ -291,7 +310,7 @@ export function customToTopic(c: CustomTopic): Topic {
 export function topicMeta(name: string, field?: string): Pick<Topic, 'icon' | 'hue'> {
   const preset = TOPICS.find((p) => p.name.toLowerCase() === name.toLowerCase());
   if (preset) return preset;
-  const f = fieldMeta(field) ?? fieldMeta(readCustom().find((c) => c.name.toLowerCase() === name.toLowerCase())?.field);
+  const f = fieldMeta(field) ?? fieldMeta(cache.find((c) => c.name.toLowerCase() === name.toLowerCase())?.field);
   return f ? { icon: f.icon, hue: f.hue } : { icon: Sparkles, hue: 230 };
 }
 

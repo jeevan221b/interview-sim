@@ -48,23 +48,23 @@ export function createLlm(llmConfig, { log = console, store = null, fetchImpl = 
   return {
     providers: providers.map(({ name, label, models }) => ({ name, label, ...(models ? { models } : {}) })),
 
-    /** @returns {Promise<{ data: any, provider: string, model: string | null }>} */
+    /** @returns {Promise<{ data: any, provider: string, model: string | null, tokens: number }>} */
     async run(task, input) {
       const spec = TASKS[task];
       if (!providers.length) throw new Error('no AI provider is configured (set LLM_PROVIDERS / API keys)');
       const errors = [];
       for (const provider of providers) {
         try {
-          if (provider.tasks) return { data: spec.normalize(provider.tasks[task](input), input), provider: provider.name, model: null };
+          if (provider.tasks) return { data: spec.normalize(provider.tasks[task](input), input), provider: provider.name, model: null, tokens: 0 };
           const { system, user } = spec.prompt(input);
-          const { data, model } = await provider.complete({
+          const { data, model, tokens = 0 } = await provider.complete({
             system,
             user,
             temperature: spec.temperature,
             maxTokens: spec.maxTokens(input),
             parse: (text) => spec.normalize(extractJson(text), input),
           });
-          return { data, provider: provider.name, model };
+          return { data, provider: provider.name, model, tokens };
         } catch (err) {
           log.warn?.(`[llm] ${task} via ${provider.name} failed: ${err.message}`);
           errors.push(`${provider.name}: ${err.message}`);

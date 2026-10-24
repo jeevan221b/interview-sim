@@ -4,9 +4,10 @@ import { normalizeEvaluation } from './llm/normalize.js';
 import { DIMENSIONS } from './llm/prompts.js';
 
 export class HttpError extends Error {
-  constructor(status, message) {
+  constructor(status, message, extra = {}) {
     super(message);
     this.status = status;
+    this.extra = extra;
   }
 }
 
@@ -73,6 +74,12 @@ export function createSession(config, plannedQuestions, provider) {
 }
 
 const maxFollowUps = (config) => Math.ceil(config.questionCount / 2);
+
+/** Upper estimate of AI requests one interview needs (plan + grading + review). Mirrors the web app. */
+export function estimateCalls(config) {
+  if (config.grading === 'end') return 2 + Math.ceil(config.questionCount / BATCH_SIZE);
+  return 2 + config.questionCount + (config.followUps ? maxFollowUps(config) : 0);
+}
 
 /** Records an answer, grades it, and may insert a follow-up question right after it. */
 export async function answerQuestion(session, questionId, body, llm) {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api';
-import type { Meta } from './types';
+import type { Me, Meta } from './types';
 
 export function useAsync<T>(fn: () => Promise<T>, deps: unknown[]) {
   const [state, setState] = useState<{ data: T | null; error: string | null; loading: boolean }>({ data: null, error: null, loading: true });
@@ -26,6 +26,36 @@ let metaPromise: Promise<Meta> | null = null;
 export function useMeta() {
   return useAsync(() => (metaPromise ||= api.meta().catch((e) => ((metaPromise = null), Promise.reject(e)))), []);
 }
+
+// The signed-in user, loaded once by the access gate and shared app-wide.
+const ME_EVENT = 'isim:me';
+let mePromise: Promise<Me> | null = null;
+let meCache: Me | null = null;
+export const loadMe = (fresh = false) => {
+  if (fresh || !mePromise) {
+    mePromise = api.me().then(
+      (me) => {
+        meCache = me;
+        window.dispatchEvent(new Event(ME_EVENT));
+        return me;
+      },
+      (e) => ((mePromise = null), Promise.reject(e)),
+    );
+  }
+  return mePromise;
+};
+export function useMe() {
+  const [me, setMe] = useState<Me | null>(meCache);
+  useEffect(() => {
+    const sync = () => setMe(meCache);
+    window.addEventListener(ME_EVENT, sync);
+    loadMe().then(sync, () => {});
+    return () => window.removeEventListener(ME_EVENT, sync);
+  }, []);
+  return { data: me };
+}
+/** Refetch after something changed today's usage (an interview started or finished). */
+export const refreshMe = () => loadMe(true).catch(() => {});
 
 /** Calls `fn` on a keyboard shortcut unless the user is typing in a field. */
 export function useHotkey(key: string, fn: (e: KeyboardEvent) => void, enabled = true) {

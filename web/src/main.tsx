@@ -2,6 +2,8 @@ import { AnimatePresence, MotionConfig, motion } from 'motion/react';
 import { StrictMode, Suspense, lazy } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { AccessGate } from './components/AccessGate';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Layout } from './components/Layout';
 import { ToastProvider } from './components/ui';
 import './index.css';
@@ -11,6 +13,7 @@ const SetupPage = lazy(() => import('./pages/Setup').then((m) => ({ default: m.S
 const InterviewPage = lazy(() => import('./pages/Interview').then((m) => ({ default: m.InterviewPage })));
 const ReportPage = lazy(() => import('./pages/Report').then((m) => ({ default: m.ReportPage })));
 const HistoryPage = lazy(() => import('./pages/History').then((m) => ({ default: m.HistoryPage })));
+const AdminPage = lazy(() => import('./pages/Admin').then((m) => ({ default: m.AdminPage })));
 const SettingsPage = lazy(() => import('./pages/Settings').then((m) => ({ default: m.SettingsPage })));
 
 function AnimatedRoutes() {
@@ -25,6 +28,7 @@ function AnimatedRoutes() {
         transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
         onAnimationStart={() => window.scrollTo({ top: 0 })}
       >
+        <ErrorBoundary resetKey={location.pathname}>
         <Suspense fallback={<div className="min-h-[60dvh]" />}>
         <Routes location={location}>
           <Route path="/" element={<HomePage />} />
@@ -33,9 +37,11 @@ function AnimatedRoutes() {
           <Route path="/report/:id" element={<ReportPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/admin" element={<AdminPage />} />
           <Route path="*" element={<HomePage />} />
         </Routes>
         </Suspense>
+        </ErrorBoundary>
       </motion.div>
     </AnimatePresence>
   );
@@ -46,9 +52,11 @@ createRoot(document.getElementById('root')!).render(
     <MotionConfig reducedMotion="user">
       <BrowserRouter>
         <ToastProvider>
-          <Layout>
-            <AnimatedRoutes />
-          </Layout>
+          <AccessGate>
+            <Layout>
+              <AnimatedRoutes />
+            </Layout>
+          </AccessGate>
         </ToastProvider>
       </BrowserRouter>
     </MotionConfig>

@@ -10,6 +10,17 @@ if (config.auth.modes.includes('none') && !['127.0.0.1', 'localhost', '::1'].inc
   process.exit(1);
 }
 const db = openDb(config.dbPath);
+// Admins and pre-invited users from .env; interviews from before multi-user belong to the first admin.
+const owner = config.auth.adminEmails[0] || 'admin@localhost';
+for (const email of config.auth.adminEmails) db.users.ensureAdmin(email);
+for (const email of config.auth.allowedEmails) db.users.add({ email, addedBy: 'config' });
+// Before ADMIN_EMAILS was set, local dev ran as a placeholder admin; hand its data to the real one.
+if (config.auth.adminEmails.length && db.users.get('admin@localhost')) {
+  const moved = db.mergeUser('admin@localhost', owner);
+  console.log(`[interview-sim] moved ${moved} interview(s) from the local placeholder admin to ${owner}`);
+}
+const claimed = db.claimOrphans(owner);
+if (claimed) console.log(`[interview-sim] assigned ${claimed} existing interview(s) to ${owner}`);
 const llm = createLlm(config.llm, { store: db.kv });
 
 let lastActivity = Date.now();

@@ -3,7 +3,7 @@ import { CircleAlert, Gauge, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { api } from '../lib/api';
 import { cx } from '../lib/format';
-import { useAsync } from '../lib/hooks';
+import { useAsync, useMe } from '../lib/hooks';
 import type { ModelQuota, Quota } from '../lib/types';
 import { Badge, Button, useToast } from './ui';
 
@@ -102,8 +102,33 @@ export function QuotaPanel() {
   );
 }
 
-/** One-line status for the Ready step, with a warning when the interview may not fit. */
+/**
+ * One-line status for the Ready step, with a warning when the interview may not fit:
+ * the shared Groq quota for the admin, the personal daily allowance for everyone else.
+ */
 export function QuotaSummary({ needed }: { needed: number }) {
+  const me = useMe().data;
+  if (!me) return null;
+  return me.isAdmin ? <GroqSummary needed={needed} /> : <AllowanceSummary needed={needed} used={me.usage.used} limit={me.usage.limit} />;
+}
+
+function AllowanceSummary({ needed, used, limit }: { needed: number; used: number; limit: number | null }) {
+  if (limit === null) return null;
+  const left = Math.max(0, limit - used);
+  const short = left < needed;
+  return (
+    <div className={cx('mt-4 flex gap-2 rounded-xl border p-3 text-xs', short ? 'border-warn/30 bg-warn/10 text-warn' : 'border-white/8 bg-white/[0.02] text-ink-300')}>
+      {short ? <CircleAlert className="size-4 shrink-0" /> : <Gauge className="size-4 shrink-0 text-brand-soft" />}
+      <span>
+        {short
+          ? `This interview needs about ${needed} AI requests and you have ${left} left today. Try grading at the end or fewer questions.`
+          : `Uses about ${needed} of your ${left} AI requests left today.`}
+      </span>
+    </div>
+  );
+}
+
+function GroqSummary({ needed }: { needed: number }) {
   const quota = useQuota();
   const q = quota.data;
   if (!q?.provider) return null;

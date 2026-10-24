@@ -147,8 +147,80 @@ export interface Quota {
 }
 
 export interface Meta {
-  providers: { name: string; label: string; models?: string[] }[];
+  /** Only sent to admins. */
+  providers?: { name: string; label: string; models?: string[] }[];
+  mockOnly: boolean;
   whisper: boolean;
   authMode: string;
   user: string | null;
+}
+
+export interface Me {
+  email: string;
+  name: string;
+  role: 'admin' | 'user';
+  isAdmin: boolean;
+  via: 'cloudflare' | 'token' | 'dev';
+  usage: { used: number; limit: number | null; remaining: number | null; day: string };
+  logoutUrl: string | null;
+  devMode: boolean;
+}
+
+export interface AdminUser {
+  email: string;
+  name: string;
+  role: 'admin' | 'user';
+  status: 'active' | 'disabled';
+  dailyLimit: number | null;
+  effectiveLimit: number | null;
+  createdAt: string;
+  lastSeenAt: string | null;
+  addedBy: string | null;
+  locked: boolean;
+  online: boolean;
+  usedToday: number;
+  usage: Record<'today' | 'week' | 'month' | 'total', UsageTotals>;
+  signIns: number;
+  firstSeenAt: string | null;
+  lastVisit: Visit | null;
+  stats: { sessions: number; completed: number; inProgress: number; avgScore: number | null; bestScore: number | null; lastSessionAt: string | null };
+}
+
+export interface UsageTotals {
+  requests: number;
+  tokens: number;
+}
+
+export interface Visit {
+  id: number;
+  email: string;
+  startedAt: string;
+  lastAt: string;
+  via: string | null;
+  ip: string | null;
+  userAgent: string | null;
+}
+
+export interface AdminUserDetail {
+  user: AdminUser;
+  visits: Visit[];
+  daily: { day: string; requests: number; tokens: number }[];
+  sessions: { id: string; createdAt: string; status: 'active' | 'completed'; topic: string; overallScore: number | null }[];
+}
+
+export interface ActivityEvent {
+  kind: 'visit' | 'not_invited' | 'disabled';
+  email: string;
+  at: string;
+  lastAt: string;
+  via: string | null;
+  ip: string | null;
+  userAgent: string | null;
+}
+
+export interface CustomTopicData {
+  name: string;
+  field: string;
+  focus: string;
+  type?: InterviewType;
 }
