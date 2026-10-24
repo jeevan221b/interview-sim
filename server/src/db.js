@@ -9,6 +9,8 @@ export const daysAgo = (n, from = new Date()) => today(new Date(from.getFullYear
 
 // A gap this long without requests ends a visit; the next request starts a new one.
 const VISIT_GAP_MS = 30 * 60_000;
+// An unfinished interview touched this recently counts as being taken right now.
+const LIVE_MS = 10 * 60_000;
 
 const userRow = (r) =>
   r && {
@@ -162,6 +164,11 @@ export function openDb(path) {
     userUpdate: db.prepare('UPDATE users SET name = ?, status = ?, daily_limit = ? WHERE email = ?'),
     userTouch: db.prepare('UPDATE users SET last_seen_at = ? WHERE email = ?'),
     userSignOut: db.prepare('UPDATE users SET signed_out_at = ? WHERE email = ?'),
+    statusCounts: db.prepare(`
+      SELECT (SELECT COUNT(*) FROM sessions WHERE status = 'active' AND updated_at >= ?) AS live,
+             (SELECT COUNT(*) FROM sessions WHERE created_at >= ?) AS started_today,
+             (SELECT COUNT(*) FROM sessions WHERE status = 'completed' AND updated_at >= ?) AS completed_today,
+             (SELECT COALESCE(SUM(requests), 0) FROM usage WHERE day = ?) AS ai_today`),
     userRemove: db.prepare('DELETE FROM users WHERE email = ?'),
     usageGet: db.prepare('SELECT requests FROM usage WHERE email = ? AND day = ?'),
     usageAdd: db.prepare(
@@ -215,6 +222,17 @@ export function openDb(path) {
       q.visitsRemoveAllFor.run(from);
       q.userRemove.run(from);
       return moved;
+    },
+    /** Counts only, for Mission Control's village: never emails, topics or answers. */
+    statusCounts(now = new Date()) {
+      const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+      const r = q.statusCounts.get(new Date(now.getTime() - LIVE_MS).toISOString(), midnight, midnight, today(now));
+      return {
+        live: Number(r.live),
+        startedToday: Number(r.started_today),
+        completedToday: Number(r.completed_today),
+        aiRequestsToday: Number(r.ai_today),
+      };
     },
     statsByUser() {
       return Object.fromEntries(

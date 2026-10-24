@@ -2,7 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { getCookie } from 'hono/cookie';
 import { SignJWT, createRemoteJWKSet, jwtVerify } from 'jose';
 
-const safeEqual = (a, b) => {
+export const safeEqual = (a, b) => {
   const x = Buffer.from(a || '');
   const y = Buffer.from(b || '');
   return x.length > 0 && x.length === y.length && timingSafeEqual(x, y);

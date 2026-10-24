@@ -42,5 +42,7 @@ export function loadConfig(env = process.env) {
     // AI requests per user per day (admins are unlimited); overridable per user.
     dailyAiLimit: num(env.DAILY_AI_LIMIT, 60),
     idleShutdownMinutes: num(env.IDLE_SHUTDOWN_MINUTES, 0),
+    // Shared with Mission Control on the same host: unlocks the counts-only GET /api/status.
+    statusKey: env.STATUS_KEY || '',
   };
 }

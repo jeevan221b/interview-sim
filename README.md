@@ -75,6 +75,7 @@ npm start                 # server serves the UI and API on HOST:PORT (default 1
 | `ALLOWED_EMAILS` | | Optional users to invite at startup (normally invite from the Admin page) |
 | `DAILY_AI_LIMIT` | `60` | AI requests per user per day; admins unlimited; overridable per user |
 | `AI_RATE_LIMIT_PER_MIN` | `20` | Cap on AI-spending requests |
+| `STATUS_KEY` | | ≥24 chars. Enables `GET /api/status` (header `X-Status-Key`) for Mission Control's village: counts of people, online now, live interviews, today's interviews and AI requests. No emails or content. |
 | `IDLE_SHUTDOWN_MINUTES` | `0` | Exit after N idle minutes (for on-demand hosting) |
 | `DB_PATH` | `data/interview-sim.db` | SQLite file |
 

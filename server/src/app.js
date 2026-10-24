@@ -5,7 +5,7 @@ import { getConnInfo } from '@hono/node-server/conninfo';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
-import { EMAIL_RE, SESSION_COOKIE, SESSION_MAX_AGE, createAuth } from './auth.js';
+import { EMAIL_RE, SESSION_COOKIE, SESSION_MAX_AGE, createAuth, safeEqual } from './auth.js';
 import { daysAgo, today } from './db.js';
 import {
   HttpError,
@@ -36,6 +36,13 @@ function clientInfo(c) {
   }
   return { ip, userAgent: (c.req.header('user-agent') || '').slice(0, 300) || null };
 }
+
+/** Seen recently and not signed out since. */
+const isOnline = (u, now = Date.now()) =>
+  u.status === 'active' &&
+  !!u.lastSeenAt &&
+  now - Date.parse(u.lastSeenAt) < ONLINE_MS &&
+  !(u.signedOutAt && u.signedOutAt >= u.lastSeenAt);
 
 /** Fixed-window limiter for the routes that spend AI quota (and sign-in, keyed by IP). */
 function rateLimit(perMinute) {
@@ -71,6 +78,26 @@ export function createApp({ config, db, llm, authDeps, onActivity = () => {}, fe
   });
 
   app.get('/api/health', (c) => c.json({ ok: true }));
+
+  // Mission Control's village building polls this over localhost with STATUS_KEY. Counts only:
+  // no emails, names, topics or answers. Without a key configured it doesn't exist.
+  app.get('/api/status', (c) => {
+    if (config.statusKey.length < 24 || !safeEqual(c.req.header('x-status-key'), config.statusKey)) {
+      return c.json({ error: 'not found' }, 404);
+    }
+    const users = db.users.list().filter((u) => u.status === 'active');
+    const counts = db.statusCounts();
+    return c.json({
+      ok: true,
+      people: users.length,
+      online_now: users.filter((u) => isOnline(u)).length,
+      live_interviews: counts.live,
+      interviews_today: counts.startedToday,
+      completed_today: counts.completedToday,
+      ai_requests_today: counts.aiRequestsToday,
+      ai_provider: llm.providers[0]?.label ?? null,
+    });
+  });
 
   const admins = new Set(config.auth.adminEmails);
   const touched = new Map();
@@ -310,11 +337,7 @@ export function createApp({ config, db, llm, authDeps, onActivity = () => {}, fe
       return {
         ...u,
         locked: admins.has(u.email),
-        online:
-          u.status === 'active' &&
-          !!u.lastSeenAt &&
-          now - Date.parse(u.lastSeenAt) < ONLINE_MS &&
-          !(u.signedOutAt && u.signedOutAt >= u.lastSeenAt),
+        online: isOnline(u, now),
         effectiveLimit: limitFor(u),
         usedToday: use.today?.requests || 0,
         usage: { today: use.today || zero, week: use.week || zero, month: use.month || zero, total: use.total || zero },
