@@ -19,6 +19,7 @@ export function loadConfig(env = process.env) {
       accessToken: env.ACCESS_TOKEN || '',
       cfTeamDomain: (env.CF_ACCESS_TEAM_DOMAIN || '').replace(/^https?:\/\//, '').replace(/\/$/, ''),
       cfAud: env.CF_ACCESS_AUD || '',
+      googleClientId: (env.GOOGLE_CLIENT_ID || '').trim(),
       // Admins can't be disabled from the UI; the first one also owns pre-multi-user data.
       adminEmails: list(env.ADMIN_EMAILS, '').map((e) => e.toLowerCase()),
       // Optional: invited users to create at startup (more can be added in the admin page).

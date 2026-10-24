@@ -6,7 +6,7 @@ import { createLlm } from './llm/index.js';
 
 const config = loadConfig();
 if (config.auth.modes.includes('none') && !['127.0.0.1', 'localhost', '::1'].includes(config.host)) {
-  console.error(`[interview-sim] refusing to listen on ${config.host} with AUTH_MODE=none; set AUTH_MODE=token or cloudflare`);
+  console.error(`[interview-sim] refusing to listen on ${config.host} with AUTH_MODE=none; set AUTH_MODE=google, cloudflare or token`);
   process.exit(1);
 }
 const db = openDb(config.dbPath);

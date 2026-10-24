@@ -1,9 +1,9 @@
 import { motion } from 'motion/react';
 import { KeyRound, LogOut, RotateCcw, ShieldOff, UserX } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
-import { ApiError, getDevUser, setDevUser, setToken } from '../lib/api';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ApiError, api, getDevUser, setDevUser, setToken, signOut } from '../lib/api';
 import { loadMe } from '../lib/hooks';
-import type { Me } from '../lib/types';
+import type { AuthConfig, Me } from '../lib/types';
 import { Button, Card } from './ui';
 import { Orb } from './visuals';
 
@@ -48,7 +48,6 @@ function Shell({ icon, title, children }: { icon: ReactNode; title: string; chil
 }
 
 function GateError({ error, onRetry }: { error: ApiError | Error; onRetry: () => void }) {
-  const [token, setTokenInput] = useState('');
   const code = error instanceof ApiError ? error.code : undefined;
   const email = error instanceof ApiError ? String(error.data.email || '') : '';
   const devUser = getDevUser();
@@ -79,35 +78,19 @@ function GateError({ error, onRetry }: { error: ApiError | Error; onRetry: () =>
           <Button icon={<RotateCcw className="size-4" />} onClick={onRetry}>
             Try again
           </Button>
-          <a href="/cdn-cgi/access/logout" className="inline-flex h-11 items-center gap-2 rounded-xl px-4 text-sm text-ink-300 hover:bg-white/5 hover:text-ink-100">
+          <button
+            onClick={() => signOut(String(error instanceof ApiError ? error.data.via || '' : ''))}
+            className="inline-flex h-11 items-center gap-2 rounded-xl px-4 text-sm text-ink-300 hover:bg-white/5 hover:text-ink-100"
+          >
             <LogOut className="size-4" /> Use another account
-          </a>
+          </button>
         </div>
         {backToMe}
       </Shell>
     );
   }
 
-  if (error instanceof ApiError && error.status === 401) {
-    return (
-      <Shell icon={<KeyRound className="size-7 text-brand-soft" />} title="Sign in">
-        <p className="mt-3 text-ink-300">Open the app through its Cloudflare link to sign in, or paste the owner's access token.</p>
-        <form
-          className="mt-6 flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setToken(token.trim());
-            onRetry();
-          }}
-        >
-          <input className="field" type="password" placeholder="Access token" value={token} onChange={(e) => setTokenInput(e.target.value)} />
-          <Button type="submit" variant="primary" disabled={!token.trim()}>
-            Go
-          </Button>
-        </form>
-      </Shell>
-    );
-  }
+  if (error instanceof ApiError && error.status === 401) return <SignIn onSignedIn={onRetry} />;
 
   return (
     <Shell icon={<ShieldOff className="size-7 text-bad" />} title="Can't reach Interview Sim">
@@ -117,5 +100,103 @@ function GateError({ error, onRetry }: { error: ApiError | Error; onRetry: () =>
       </Button>
       {backToMe}
     </Shell>
+  );
+}
+
+function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
+  const [config, setConfig] = useState<AuthConfig | null>(null);
+  const [token, setTokenInput] = useState('');
+  useEffect(() => {
+    api.authConfig().then(setConfig, () => setConfig({ modes: [], googleClientId: null }));
+  }, []);
+  if (!config) return <Orb state="thinking" size={120} />;
+  const tokenMode = config.modes.includes('token');
+
+  return (
+    <Shell icon={<KeyRound className="size-7 text-brand-soft" />} title="Sign in">
+      <p className="mt-3 text-ink-300">
+        {config.googleClientId
+          ? 'Interview Sim is invite-only. Sign in with the Google account your invite was sent to.'
+          : config.modes.includes('cloudflare')
+            ? 'Open the app through its Cloudflare link to sign in.'
+            : "Paste the owner's access token to continue."}
+      </p>
+      {config.googleClientId && <GoogleButton clientId={config.googleClientId} onSignedIn={onSignedIn} />}
+      {tokenMode && (
+        <form
+          className="mt-6 flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setToken(token.trim());
+            onSignedIn();
+          }}
+        >
+          <input className="field" type="password" placeholder="Access token" value={token} onChange={(e) => setTokenInput(e.target.value)} />
+          <Button type="submit" variant="primary" disabled={!token.trim()}>
+            Go
+          </Button>
+        </form>
+      )}
+    </Shell>
+  );
+}
+
+type GoogleId = {
+  initialize(options: { client_id: string; callback: (r: { credential: string }) => void; ux_mode?: 'popup' }): void;
+  renderButton(el: HTMLElement, options: Record<string, unknown>): void;
+};
+declare global {
+  interface Window {
+    google?: { accounts: { id: GoogleId } };
+  }
+}
+
+let gisScript: Promise<GoogleId> | null = null;
+/** Google Identity Services, loaded only when the sign-in screen needs it. */
+function loadGoogleId() {
+  gisScript ??= new Promise<GoogleId>((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.onload = () => (window.google ? resolve(window.google.accounts.id) : reject(new Error('Google sign-in did not load.')));
+    script.onerror = () => {
+      gisScript = null;
+      reject(new Error("Couldn't load Google sign-in. Check your connection and reload."));
+    };
+    document.head.appendChild(script);
+  });
+  return gisScript;
+}
+
+function GoogleButton({ clientId, onSignedIn }: { clientId: string; onSignedIn: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let live = true;
+    loadGoogleId().then(
+      (gid) => {
+        if (!live || !ref.current) return;
+        gid.initialize({
+          client_id: clientId,
+          ux_mode: 'popup',
+          callback: ({ credential }) => {
+            setError('');
+            api.googleSignIn(credential).then(onSignedIn, (e: Error) => setError(e.message));
+          },
+        });
+        gid.renderButton(ref.current, { theme: 'filled_black', size: 'large', shape: 'pill', text: 'signin_with', width: 280 });
+      },
+      (e: Error) => live && setError(e.message),
+    );
+    return () => {
+      live = false;
+    };
+  }, [clientId, onSignedIn]);
+
+  return (
+    <div className="mt-6">
+      <div ref={ref} className="flex min-h-11 justify-center" />
+      {error && <p className="mt-3 text-sm text-bad">{error}</p>}
+    </div>
   );
 }

@@ -155,12 +155,17 @@ export interface Meta {
   user: string | null;
 }
 
+export interface AuthConfig {
+  modes: string[];
+  googleClientId: string | null;
+}
+
 export interface Me {
   email: string;
   name: string;
   role: 'admin' | 'user';
   isAdmin: boolean;
-  via: 'cloudflare' | 'token' | 'dev';
+  via: 'google' | 'cloudflare' | 'token' | 'dev';
   usage: { used: number; limit: number | null; remaining: number | null; day: string };
   logoutUrl: string | null;
   devMode: boolean;

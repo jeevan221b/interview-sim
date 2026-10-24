@@ -27,8 +27,9 @@ Free API keys:
 
 ## Users and access
 
-Invite-only. Authentication proves who someone is (Cloudflare Access login, or the owner's access token);
-the app's own users table decides whether they get in.
+Invite-only. Authentication proves who someone is ("Sign in with Google", a Cloudflare Access login, or
+the owner's access token); the app's own users table decides whether they get in. With Google sign-in the
+Admin page's invite list is the only list to keep: add an email there and that person can sign in.
 
 - **Admin** (`ADMIN_EMAILS`): the Admin page to invite, pause or remove people, set per-person daily AI
   limits, and see activity counts (not anyone's answers) plus the Groq quota. Settings shows the system
@@ -66,7 +67,8 @@ npm start                 # server serves the UI and API on HOST:PORT (default 1
 | `GROQ_MODELS` | `openai/gpt-oss-120b,openai/gpt-oss-20b,qwen/qwen3.8-27b` | Model chain. Groq limits are per model (≈1000 requests/day, 8000 tokens/min on the free tier), so the next model takes over when one is rate-limited, down, or returns bad JSON. |
 | `GROQ_REASONING_EFFORT` | `low` | gpt-oss reasoning effort; `low` keeps token use down |
 | `GROQ_STT_MODEL` | `whisper-large-v3-turbo` | Whisper transcription |
-| `AUTH_MODE` | `none` | `none`, `token`, `cloudflare`, or `cloudflare,token` |
+| `AUTH_MODE` | `none` | `none`, `google`, `cloudflare`, `token`, or a combination like `google,token` |
+| `GOOGLE_CLIENT_ID` | | Google OAuth *Web application* client ID (`….apps.googleusercontent.com`). Its authorized JavaScript origins must list the site (and `http://localhost:5173` for development). Sessions last 30 days; the signing key is generated into the database. |
 | `ACCESS_TOKEN` | | ≥24 chars; sent as `Authorization: Bearer`; signs in as the first admin. Open the app once with `/#token=…` to save it on a device. |
 | `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD` | | Cloudflare Access JWT verification (team domain like `me.cloudflareaccess.com`) |
 | `ADMIN_EMAILS` | | Admins: always allowed, see the Admin page, no daily limit. Required unless `AUTH_MODE=none`. |
@@ -78,17 +80,22 @@ npm start                 # server serves the UI and API on HOST:PORT (default 1
 
 The server refuses to bind to a non-localhost address while `AUTH_MODE=none`.
 
-## Deploying to Nexus (later)
+## Deploying to Nexus
 
-Termux-friendly by design: plain-JS server (no build step), Node's built-in `node:sqlite` (no native modules),
-and the UI is built on the laptop and shipped as static files. Plan:
+Runs 24/7 on Nexus at **https://interview.jeevanraj.dev**: the existing Cloudflare tunnel routes that hostname
+to `127.0.0.1:8920` (the server binds to localhost only, so nothing reaches it except through the tunnel), and
+Cloudflare provides the HTTPS the microphone needs. Sign-in is `AUTH_MODE=google`; `ADMIN_EMAILS` is the owner only.
 
-1. Build `web/dist` on the laptop, then sync the repo to Nexus and run `npm install --omit=dev -w server`.
-2. Run `npm start` in tmux with `PORT=8920`, `IDLE_SHUTDOWN_MINUTES=30`, launched on demand from Mission Control.
-3. Expose it through the existing Cloudflare tunnel as its own hostname behind Cloudflare Access
-   (an Access group holding the invited emails; Google + one-time PIN login) and set
-   `AUTH_MODE=cloudflare,token` with `ADMIN_EMAILS`. Invite the same emails in the Admin page.
-   The microphone needs HTTPS, which the tunnel provides.
+```bash
+./scripts/deploy-nexus.sh            # tests, build web/dist, push, ship dist, npm install, restart
+./scripts/deploy-nexus.sh --status   # tmux + local health + public URL
+./scripts/deploy-nexus.sh --logs     # tail logs/server.log on Nexus
+```
+
+On Nexus: tmux session `interview-sim` runs `scripts/nexus-serve.sh` (restarts the server if it exits);
+`~/nexus/ensure-up.sh` calls `scripts/nexus-watchdog.sh` so it comes back after a reboot or a killed Termux;
+cron runs `scripts/backup-db.sh` daily into `~/nexus/backups/interview-sim/` (last 14 kept). The `.env` and
+`data/` on Nexus are never overwritten by a deploy.
 
 ## Layout
 

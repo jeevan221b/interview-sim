@@ -1,9 +1,11 @@
+import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
-import { EMAIL_RE, createAuth } from './auth.js';
+import { deleteCookie, setCookie } from 'hono/cookie';
+import { EMAIL_RE, SESSION_COOKIE, SESSION_MAX_AGE, createAuth } from './auth.js';
 import { daysAgo, today } from './db.js';
 import {
   HttpError,
@@ -35,11 +37,11 @@ function clientInfo(c) {
   return { ip, userAgent: (c.req.header('user-agent') || '').slice(0, 300) || null };
 }
 
-/** Fixed-window limiter for the routes that spend AI quota. */
+/** Fixed-window limiter for the routes that spend AI quota (and sign-in, keyed by IP). */
 function rateLimit(perMinute) {
   const hits = new Map();
   return async (c, next) => {
-    const key = c.get('user')?.email || c.req.header('x-forwarded-for') || 'local';
+    const key = c.get('user')?.email || clientInfo(c).ip || 'local';
     const window = Math.floor(Date.now() / 60_000);
     const entry = hits.get(key);
     const count = entry?.window === window ? entry.count + 1 : 1;
@@ -55,7 +57,10 @@ function rateLimit(perMinute) {
  */
 export function createApp({ config, db, llm, authDeps, onActivity = () => {}, fetchImpl = fetch }) {
   const app = new Hono();
-  const auth = createAuth(config.auth, authDeps);
+  // Signs google-mode session cookies; kept in the database so restarts don't sign everyone out.
+  let secret = db.kv.get('session_secret');
+  if (!secret) db.kv.set('session_secret', (secret = randomBytes(32).toString('hex')));
+  const auth = createAuth(config.auth, { sessionSecret: Buffer.from(secret, 'hex'), ...authDeps });
   const limited = rateLimit(config.aiRateLimitPerMin);
   const whisper = !!config.llm.groq.apiKey;
 
@@ -66,6 +71,36 @@ export function createApp({ config, db, llm, authDeps, onActivity = () => {}, fe
   });
 
   app.get('/api/health', (c) => c.json({ ok: true }));
+
+  // ---------- sign-in (public: these run before the auth middleware) ----------
+
+  // Plain http is only ever localhost; everywhere else the app sits behind Cloudflare's https.
+  const cookieOpts = (c) => ({
+    path: '/',
+    httpOnly: true,
+    sameSite: 'Lax',
+    secure: !/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(c.req.header('host') || ''),
+  });
+
+  app.get('/api/auth/config', (c) => c.json({ modes: auth.modes, googleClientId: auth.google?.clientId || null }));
+
+  if (auth.google) {
+    app.post('/api/auth/google', rateLimit(10), async (c) => {
+      const { credential } = await c.req.json().catch(() => ({}));
+      const who = typeof credential === 'string' ? await auth.google.verifyCredential(credential) : null;
+      if (!who) throw new HttpError(401, 'Google sign-in could not be verified. Try again.');
+      // Fill in the name for invited users who don't have one yet; access itself is checked per request.
+      const user = db.users.get(who.email);
+      if (user && !user.name && who.name) db.users.update(who.email, { name: who.name.slice(0, 80), status: user.status, dailyLimit: user.dailyLimit });
+      setCookie(c, SESSION_COOKIE, await auth.google.issueSession(who.email), { ...cookieOpts(c), maxAge: SESSION_MAX_AGE });
+      return c.json({ email: who.email });
+    });
+  }
+
+  app.post('/api/auth/logout', (c) => {
+    deleteCookie(c, SESSION_COOKIE, cookieOpts(c));
+    return c.json({ ok: true });
+  });
 
   const admins = new Set(config.auth.adminEmails);
   const touched = new Map();
@@ -86,8 +121,8 @@ export function createApp({ config, db, llm, authDeps, onActivity = () => {}, fe
       }
       return c.json(
         user
-          ? { error: 'Your access to this app has been paused.', code: 'disabled', email }
-          : { error: "You haven't been invited to this app yet.", code: 'not_invited', email },
+          ? { error: 'Your access to this app has been paused.', code: 'disabled', email, via }
+          : { error: "You haven't been invited to this app yet.", code: 'not_invited', email, via },
         403,
       );
     }

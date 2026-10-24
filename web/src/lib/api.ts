@@ -1,4 +1,4 @@
-import type { ActivityEvent, AdminUser, AdminUserDetail, CustomTopicData, Me, Meta, Question, Quota, Session, SessionConfig, SessionSummary, Stats } from './types';
+import type { ActivityEvent, AdminUser, AuthConfig, AdminUserDetail, CustomTopicData, Me, Meta, Question, Quota, Session, SessionConfig, SessionSummary, Stats } from './types';
 
 const TOKEN_KEY = 'isim.token';
 const DEV_USER_KEY = 'isim.devUser';
@@ -50,6 +50,17 @@ export function setDevUser(email: string) {
   }
 }
 
+/** Ends the session for whichever way the user signed in, then reloads to the sign-in screen. */
+export async function signOut(via?: string) {
+  setToken('');
+  if (via === 'cloudflare') {
+    location.href = '/cdn-cgi/access/logout';
+    return;
+  }
+  await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+  location.reload();
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -95,6 +106,8 @@ export interface AnswerPayload {
 const enc = encodeURIComponent;
 
 export const api = {
+  authConfig: () => request<AuthConfig>('GET', '/api/auth/config'),
+  googleSignIn: (credential: string) => request<{ email: string }>('POST', '/api/auth/google', { credential }),
   me: () => request<Me>('GET', '/api/me'),
   meta: () => request<Meta>('GET', '/api/meta'),
   topics: () => request<CustomTopicData[]>('GET', '/api/topics'),

@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Eye, History, LayoutDashboard, LogOut, Plus, Settings, ShieldCheck, Sparkles } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
-import { getDevUser, setDevUser, setToken } from '../lib/api';
+import { getDevUser, setDevUser, signOut } from '../lib/api';
 import { cx } from '../lib/format';
 import { refreshMe, useMe } from '../lib/hooks';
 import type { Me } from '../lib/types';
@@ -36,14 +36,6 @@ export function Avatar({ email, name, size = 'md' }: { email: string; name?: str
       {initials(email, name)}
     </span>
   );
-}
-
-function signOut(me: Me) {
-  if (me.logoutUrl) location.href = me.logoutUrl;
-  else if (me.via === 'token') {
-    setToken('');
-    location.reload();
-  }
 }
 
 function UserMenu({ me }: { me: Me }) {
@@ -103,8 +95,8 @@ function UserMenu({ me }: { me: Me }) {
                 <p className="mt-1 text-xs text-ink-400">No daily limit</p>
               )}
             </div>
-            {(me.logoutUrl || me.via === 'token') && (
-              <button onClick={() => signOut(me)} className="mt-3 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm text-ink-300 transition-colors hover:bg-white/5 hover:text-ink-100">
+            {me.via !== 'dev' && (
+              <button onClick={() => signOut(me.via)} className="mt-3 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm text-ink-300 transition-colors hover:bg-white/5 hover:text-ink-100">
                 <LogOut className="size-4" /> Sign out
               </button>
             )}
