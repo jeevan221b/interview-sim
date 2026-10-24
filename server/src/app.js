@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
-import { deleteCookie, setCookie } from 'hono/cookie';
+import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { EMAIL_RE, SESSION_COOKIE, SESSION_MAX_AGE, createAuth } from './auth.js';
 import { daysAgo, today } from './db.js';
 import {
@@ -72,6 +72,10 @@ export function createApp({ config, db, llm, authDeps, onActivity = () => {}, fe
 
   app.get('/api/health', (c) => c.json({ ok: true }));
 
+  const admins = new Set(config.auth.adminEmails);
+  const touched = new Map();
+  const deniedLogged = new Map();
+
   // ---------- sign-in (public: these run before the auth middleware) ----------
 
   // Plain http is only ever localhost; everywhere else the app sits behind Cloudflare's https.
@@ -97,14 +101,19 @@ export function createApp({ config, db, llm, authDeps, onActivity = () => {}, fe
     });
   }
 
-  app.post('/api/auth/logout', (c) => {
+  app.post('/api/auth/logout', async (c) => {
+    const session = getCookie(c, SESSION_COOKIE);
+    const email = session && auth.google ? await auth.google.readSession(session) : null;
+    if (email && db.users.get(email)) {
+      // Recorded so the admin page shows them offline now, not 3 minutes later.
+      db.users.signOut(email);
+      db.visits.signOut(email);
+      touched.delete(email);
+    }
     deleteCookie(c, SESSION_COOKIE, cookieOpts(c));
     return c.json({ ok: true });
   });
 
-  const admins = new Set(config.auth.adminEmails);
-  const touched = new Map();
-  const deniedLogged = new Map();
 
   // Authorization: the authenticated email must be an admin or an invited, active user.
   app.use('/api/*', auth.middleware, async (c, next) => {
@@ -301,7 +310,11 @@ export function createApp({ config, db, llm, authDeps, onActivity = () => {}, fe
       return {
         ...u,
         locked: admins.has(u.email),
-        online: u.status === 'active' && !!u.lastSeenAt && now - Date.parse(u.lastSeenAt) < ONLINE_MS,
+        online:
+          u.status === 'active' &&
+          !!u.lastSeenAt &&
+          now - Date.parse(u.lastSeenAt) < ONLINE_MS &&
+          !(u.signedOutAt && u.signedOutAt >= u.lastSeenAt),
         effectiveLimit: limitFor(u),
         usedToday: use.today?.requests || 0,
         usage: { today: use.today || zero, week: use.week || zero, month: use.month || zero, total: use.total || zero },
@@ -333,7 +346,7 @@ export function createApp({ config, db, llm, authDeps, onActivity = () => {}, fe
   // Everyone's recent sign-ins plus turned-away attempts, newest first.
   app.get('/api/admin/activity', (c) => {
     const events = [
-      ...db.visits.recent(60).map((v) => ({ kind: 'visit', email: v.email, at: v.startedAt, lastAt: v.lastAt, via: v.via, ip: v.ip, userAgent: v.userAgent })),
+      ...db.visits.recent(60).map((v) => ({ kind: 'visit', email: v.email, at: v.startedAt, lastAt: v.lastAt, signedOutAt: v.signedOutAt, via: v.via, ip: v.ip, userAgent: v.userAgent })),
       ...db.denied.recent(60).map((d) => ({ kind: d.reason, email: d.email, at: d.at, lastAt: d.at, via: d.via, ip: d.ip, userAgent: d.userAgent })),
     ].sort((x, y) => (x.at < y.at ? 1 : -1));
     return c.json({ events: events.slice(0, 60), since: daysAgo(30) });

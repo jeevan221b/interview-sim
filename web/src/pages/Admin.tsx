@@ -46,6 +46,7 @@ function presence(u: AdminUser) {
   if (u.status === 'disabled') return { label: 'Paused', color: '#fbbf24', dot: 'bg-warn' };
   if (u.online) return { label: 'Online now', color: '#34d399', dot: 'bg-good' };
   if (!u.lastSeenAt) return { label: 'Never signed in', color: '#6a7b9c', dot: 'bg-ink-600' };
+  if (u.signedOutAt && u.signedOutAt >= u.lastSeenAt) return { label: `Signed out ${relativeDate(u.signedOutAt)}`, color: '#9badc9', dot: 'bg-ink-400' };
   return { label: `Last seen ${relativeDate(u.lastSeenAt)}`, color: '#9badc9', dot: 'bg-ink-400' };
 }
 
@@ -179,7 +180,7 @@ export function AdminPage() {
         </motion.div>
 
         <motion.div variants={stagger.item} className="space-y-4">
-          <InviteCard defaultLimit={defaultLimit} devMode={!!me?.devMode} onInvite={(u) => apply(api.admin.addUser(u), `Invited ${u.email}`)} />
+          <InviteCard defaultLimit={defaultLimit} devMode={!!me?.devMode} via={me?.via} onInvite={(u) => apply(api.admin.addUser(u), `Invited ${u.email}`)} />
           <ActivityCard events={activity.data?.events} loading={activity.loading && !activity.data} known={new Set(users.map((u) => u.email))} onInvite={invite} />
           <Card className="p-5 sm:p-6">
             <SectionTitle icon={<Gauge className="size-5" />}>Groq quota</SectionTitle>
@@ -293,7 +294,7 @@ function UserRow({ u, isMe, onOpen }: { u: AdminUser; isMe: boolean; onOpen: () 
   );
 }
 
-function InviteCard({ defaultLimit, devMode, onInvite }: { defaultLimit: number; devMode: boolean; onInvite: (u: { email: string; name: string; dailyLimit: number | null }) => Promise<boolean> }) {
+function InviteCard({ defaultLimit, devMode, via, onInvite }: { defaultLimit: number; devMode: boolean; via?: string; onInvite: (u: { email: string; name: string; dailyLimit: number | null }) => Promise<boolean> }) {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [limit, setLimit] = useState('');
@@ -330,7 +331,9 @@ function InviteCard({ defaultLimit, devMode, onInvite }: { defaultLimit: number;
       <p className="mt-3 text-xs text-ink-400">
         {devMode
           ? 'Local dev mode: open a person and use “View as” to try the app as them.'
-          : 'They sign in through Cloudflare Access with Google or an emailed code. Also add their email to the Access group in the Cloudflare dashboard.'}
+          : via === 'cloudflare'
+            ? 'They sign in through Cloudflare Access with Google or an emailed code. Also add their email to the Access group in the Cloudflare dashboard.'
+            : 'They open this site and use “Sign in with Google” with this email. Nothing else to set up.'}
       </p>
     </Card>
   );
@@ -367,7 +370,8 @@ function ActivityCard({ events, loading, known, onInvite }: { events?: ActivityE
                   </div>
                   <div className="text-xs text-ink-400">
                     {relativeDate(e.at)}
-                    {e.kind === 'visit' && e.lastAt !== e.at && ` · ${spanLabel(e.at, e.lastAt)}`} · {describeDevice(e.userAgent)}
+                    {e.kind === 'visit' && e.lastAt !== e.at && ` · ${spanLabel(e.at, e.lastAt)}`}
+                    {e.kind === 'visit' && e.signedOutAt && ' · signed out'} · {describeDevice(e.userAgent)}
                     {e.ip && ` · ${e.ip}`}
                   </div>
                   {e.kind === 'not_invited' && !known.has(e.email) && (
@@ -527,6 +531,7 @@ function UserDetailModal({
                           <div className="flex items-center gap-2">
                             <span className="text-ink-100">{formatDateTime(v.startedAt)}</span>
                             {live && <Badge color="#34d399">Active now</Badge>}
+                            {v.signedOutAt && <Badge color="#9badc9">Signed out</Badge>}
                           </div>
                           <div className="mt-0.5 flex flex-wrap gap-x-2 text-ink-400">
                             <span className="flex items-center gap-1">

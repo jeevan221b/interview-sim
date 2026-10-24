@@ -180,6 +180,7 @@ export interface AdminUser {
   effectiveLimit: number | null;
   createdAt: string;
   lastSeenAt: string | null;
+  signedOutAt: string | null;
   addedBy: string | null;
   locked: boolean;
   online: boolean;
@@ -201,6 +202,7 @@ export interface Visit {
   email: string;
   startedAt: string;
   lastAt: string;
+  signedOutAt: string | null;
   via: string | null;
   ip: string | null;
   userAgent: string | null;
@@ -218,6 +220,7 @@ export interface ActivityEvent {
   email: string;
   at: string;
   lastAt: string;
+  signedOutAt?: string | null;
   via: string | null;
   ip: string | null;
   userAgent: string | null;

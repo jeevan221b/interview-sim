@@ -19,10 +19,20 @@ const userRow = (r) =>
     dailyLimit: r.daily_limit ?? null,
     createdAt: r.created_at,
     lastSeenAt: r.last_seen_at ?? null,
+    signedOutAt: r.signed_out_at ?? null,
     addedBy: r.added_by ?? null,
   };
 
-const visitRow = (r) => ({ id: r.id, email: r.email, startedAt: r.started_at, lastAt: r.last_at, via: r.via, ip: r.ip, userAgent: r.user_agent });
+const visitRow = (r) => ({
+  id: r.id,
+  email: r.email,
+  startedAt: r.started_at,
+  lastAt: r.last_at,
+  signedOutAt: r.signed_out_at ?? null,
+  via: r.via,
+  ip: r.ip,
+  userAgent: r.user_agent,
+});
 
 const topicRow = (r) => ({ name: r.name, field: r.field, focus: r.focus, type: r.type || undefined });
 
@@ -101,6 +111,13 @@ export function openDb(path) {
   if (!db.prepare('PRAGMA table_info(usage)').all().some((c) => c.name === 'tokens')) {
     db.exec('ALTER TABLE usage ADD COLUMN tokens INTEGER NOT NULL DEFAULT 0');
   }
+  // Sign-outs, so the admin page doesn't show someone as online after they signed out.
+  if (!db.prepare('PRAGMA table_info(users)').all().some((c) => c.name === 'signed_out_at')) {
+    db.exec('ALTER TABLE users ADD COLUMN signed_out_at TEXT');
+  }
+  if (!db.prepare('PRAGMA table_info(visits)').all().some((c) => c.name === 'signed_out_at')) {
+    db.exec('ALTER TABLE visits ADD COLUMN signed_out_at TEXT');
+  }
 
   const q = {
     insert: db.prepare(
@@ -123,7 +140,8 @@ export function openDb(path) {
              MAX(created_at) AS last_session_at
       FROM sessions GROUP BY user_email`),
     sessionsMeta: db.prepare('SELECT id, created_at, status, topic, overall_score FROM sessions WHERE user_email = ? ORDER BY created_at DESC LIMIT ?'),
-    visitLast: db.prepare('SELECT id, last_at FROM visits WHERE email = ? ORDER BY id DESC LIMIT 1'),
+    visitLast: db.prepare('SELECT id, last_at, signed_out_at FROM visits WHERE email = ? ORDER BY id DESC LIMIT 1'),
+    visitSignOut: db.prepare('UPDATE visits SET signed_out_at = ?, last_at = ? WHERE id = ?'),
     visitInsert: db.prepare('INSERT INTO visits (email, started_at, last_at, via, ip, user_agent) VALUES (?, ?, ?, ?, ?, ?)'),
     visitExtend: db.prepare('UPDATE visits SET last_at = ? WHERE id = ?'),
     visitsFor: db.prepare('SELECT * FROM visits WHERE email = ? ORDER BY started_at DESC LIMIT ?'),
@@ -143,6 +161,7 @@ export function openDb(path) {
     userMakeAdmin: db.prepare("UPDATE users SET role = 'admin', status = 'active' WHERE email = ?"),
     userUpdate: db.prepare('UPDATE users SET name = ?, status = ?, daily_limit = ? WHERE email = ?'),
     userTouch: db.prepare('UPDATE users SET last_seen_at = ? WHERE email = ?'),
+    userSignOut: db.prepare('UPDATE users SET signed_out_at = ? WHERE email = ?'),
     userRemove: db.prepare('DELETE FROM users WHERE email = ?'),
     usageGet: db.prepare('SELECT requests FROM usage WHERE email = ? AND day = ?'),
     usageAdd: db.prepare(
@@ -244,6 +263,9 @@ export function openDb(path) {
       touch(email, at = new Date().toISOString()) {
         q.userTouch.run(at, email);
       },
+      signOut(email, at = new Date().toISOString()) {
+        q.userSignOut.run(at, email);
+      },
       /** Removes access; with `withData` also their interviews, topics and usage. */
       remove(email, { withData = false } = {}) {
         const removed = q.userRemove.run(email).changes > 0;
@@ -282,12 +304,17 @@ export function openDb(path) {
     },
 
     visits: {
-      /** Extends the caller's current visit, or starts a new one after a long gap. */
+      /** Extends the caller's current visit, or starts a new one after a long gap or a sign-out. */
       record(email, { via = null, ip = null, userAgent = null } = {}, now = new Date()) {
         const last = q.visitLast.get(email);
         const at = now.toISOString();
-        if (last && now.getTime() - Date.parse(last.last_at) < VISIT_GAP_MS) q.visitExtend.run(at, last.id);
+        if (last && !last.signed_out_at && now.getTime() - Date.parse(last.last_at) < VISIT_GAP_MS) q.visitExtend.run(at, last.id);
         else q.visitInsert.run(email, at, at, via, ip, userAgent);
+      },
+      /** Ends the caller's current visit with a sign-out. */
+      signOut(email, now = new Date()) {
+        const last = q.visitLast.get(email);
+        if (last && !last.signed_out_at) q.visitSignOut.run(now.toISOString(), now.toISOString(), last.id);
       },
       forUser: (email, limit = 50) => q.visitsFor.all(email, limit).map(visitRow),
       recent: (limit = 50) => q.visitsRecent.all(limit).map(visitRow),

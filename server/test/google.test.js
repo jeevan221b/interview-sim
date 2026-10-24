@@ -155,3 +155,37 @@ test('session secret survives restarts (same database)', async () => {
   assert.equal(db.kv.get('session_secret'), first);
   assert.equal(first.length, 64);
 });
+
+test('google: signing out shows the person offline right away, signing back in shows them online again', async () => {
+  const { app, db, credential, signIn, cookieOf, get } = await setup();
+  db.users.add({ email: FRIEND });
+  const admin = cookieOf(await signIn(await credential({ email: OWNER })));
+  const friend = cookieOf(await signIn(await credential({ email: FRIEND })));
+  const friendRow = async () => (await (await get('/api/admin/users', admin)).json()).users.find((u) => u.email === FRIEND);
+
+  assert.equal((await get('/api/me', friend)).status, 200);
+  assert.equal((await friendRow()).online, true);
+
+  await app.request('/api/auth/logout', { method: 'POST', headers: { ...HOST, cookie: friend } });
+  const after = await friendRow();
+  assert.equal(after.online, false);
+  assert.ok(after.signedOutAt);
+  const visits = db.visits.forUser(FRIEND);
+  assert.equal(visits.length, 1);
+  assert.ok(visits[0].signedOutAt, 'the visit is closed by the sign-out');
+
+  // Signing in again (even within a minute) is a new visit and online again.
+  const again = cookieOf(await signIn(await credential({ email: FRIEND })));
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal((await get('/api/me', again)).status, 200);
+  assert.equal((await friendRow()).online, true);
+  assert.equal(db.visits.forUser(FRIEND).length, 2);
+});
+
+test('logout without a valid session just clears the cookie', async () => {
+  const { app, db } = await setup();
+  db.users.add({ email: FRIEND });
+  const res = await app.request('/api/auth/logout', { method: 'POST', headers: { ...HOST, cookie: 'isim_session=garbage' } });
+  assert.equal(res.status, 200);
+  assert.equal(db.users.get(FRIEND).signedOutAt, null);
+});
