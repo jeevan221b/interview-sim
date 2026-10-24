@@ -1,0 +1,13 @@
+[Unit]
+Description=Daily off-phone copy of Interview Sim backups
+
+[Timer]
+# Nexus backs up at 3:30 AM; pull mid-morning. Persistent catches up after the
+# laptop was off or asleep at that time; the delay lets Wi-Fi/Tailscale come up first.
+OnCalendar=*-*-* 10:00
+Persistent=true
+RandomizedDelaySec=5min
+OnBootSec=5min
+
+[Install]
+WantedBy=timers.target

@@ -98,6 +98,12 @@ On Nexus: tmux session `interview-sim` runs `scripts/nexus-serve.sh` (restarts t
 cron runs `scripts/backup-db.sh` daily into `~/nexus/backups/interview-sim/` (last 14 kept). The `.env` and
 `data/` on Nexus are never overwritten by a deploy.
 
+Off-phone copies: `scripts/install-backup-timer.sh` (run once on the laptop) installs a systemd user timer that
+runs `scripts/pull-backup.sh` daily at 10:00 (and after boot, catching up missed days). It copies any new backup
+from Nexus over Tailscale into `~/Backups/interview-sim/`, checks each with SQLite's `integrity_check`, keeps
+the last 30, and raises a desktop notification if Nexus is unreachable, a copy is bad, or the newest backup is
+more than 2 days old. Check it with `systemctl --user status interview-sim-backup` or `journalctl --user -u interview-sim-backup`.
+
 ## Layout
 
 ```

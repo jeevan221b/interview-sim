@@ -1,0 +1,7 @@
+[Unit]
+Description=Copy Interview Sim database backups off Nexus (the phone)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/Projects/interview-sim/scripts/pull-backup.sh
