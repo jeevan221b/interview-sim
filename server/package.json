@@ -1,0 +1,15 @@
+{
+  "name": "interview-sim-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node -e \"require('fs').existsSync('../.env')||require('fs').copyFileSync('../.env.example','../.env')\" && node --watch --watch-preserve-output --disable-warning=ExperimentalWarning --env-file-if-exists=../.env src/index.js",
+    "start": "node --disable-warning=ExperimentalWarning --env-file-if-exists=../.env src/index.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.5",
+    "hono": "^4.13.13",
+    "jose": "^6.2.13"
+  }
+}
